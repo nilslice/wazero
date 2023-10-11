@@ -201,6 +201,20 @@ func testUserDefinedPrimitiveHostFunc(t *testing.T, r wazero.Runtime) {
 	const fn = "fn"
 	hostCompiled, err := r.NewHostModuleBuilder("host").NewFunctionBuilder().
 		WithFunc(func(u1 u32, u2 u64, f1 f32, f2 f64) u64 {
+			callNum := 10000
+			var growGoroutineStack func()
+			growGoroutineStack = func() {
+				if callNum != 0 {
+					callNum--
+					growGoroutineStack()
+				}
+			}
+			growGoroutineStack()
+
+			// Trigger relocation of goroutine stack because at this point we have the majority of
+			// goroutine stack unused after recursive call.
+			runtime.GC()
+
 			return u64(u1) + u2 + u64(math.Float32bits(float32(f1))) + u64(math.Float64bits(float64(f2)))
 		}).Export(fn).Compile(testCtx)
 	require.NoError(t, err)

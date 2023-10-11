@@ -181,10 +181,15 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		default:
 		}
 	}
-
+	if wazevoapi.StackGuardCheckEnabled {
+		wazevoapi.CheckStackGuardPage(c.stack)
+	}
 	var paramResultPtr *uint64
 	if len(paramResultStack) > 0 {
 		paramResultPtr = &paramResultStack[0]
+	}
+	if wazevoapi.StackGuardCheckEnabled {
+		wazevoapi.CheckStackGuardPage(c.stack)
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -222,16 +227,34 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 		}
 	}()
-
+	if wazevoapi.StackGuardCheckEnabled {
+		wazevoapi.CheckStackGuardPage(c.stack)
+	}
 	if ensureTermination {
 		done := m.CloseModuleOnCanceledOrTimeout(ctx)
 		defer done()
 	}
-
+	if wazevoapi.StackGuardCheckEnabled {
+		wazevoapi.CheckStackGuardPage(c.stack)
+	}
+	before := c.stackTop
 	entrypoint(c.preambleExecutable, c.executable, c.execCtxPtr, c.parent.opaquePtr, paramResultPtr, c.stackTop)
+	if wazevoapi.StackGuardCheckEnabled {
+		wazevoapi.CheckStackGuardPage(c.stack)
+	}
+	if before != c.stackTop {
+		panic("BUG: stackTop must not be changed")
+	}
 	for {
 		switch ec := c.execCtx.exitCode; ec & wazevoapi.ExitCodeMask {
 		case wazevoapi.ExitCodeOK:
+			if wazevoapi.StackGuardCheckEnabled {
+				wazevoapi.CheckStackGuardPage(c.stack)
+			}
+			//fmt.Printf("Stack guard page:\n\tguard_page=%s\n\tstack=%s\n",
+			//	hex.EncodeToString(c.stack[:wazevoapi.StackGuardCheckGuardPageSize]),
+			//	hex.EncodeToString(c.stack[wazevoapi.StackGuardCheckGuardPageSize:]),
+			//)
 			return nil
 		case wazevoapi.ExitCodeGrowStack:
 			var newsp uintptr
