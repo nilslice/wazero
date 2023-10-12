@@ -103,28 +103,15 @@ func (c *callEngine) init() {
 		buf, err := platform.MmapCodeSegment(stackSize)
 		if err != nil {
 			panic(err)
-		} else if len(buf) != stackSize {
-			panic("BUG")
 		}
 		c.stack = buf
 	} else {
 		c.stack = make([]byte, stackSize)
 	}
 	c.stackTop = alignedStackTop(c.stack)
+	c.execCtx.stackBottomPtr = &c.stack[0]
 	if wazevoapi.StackGuardCheckEnabled {
-		c.execCtx.stackBottomPtr = &c.stack[wazevoapi.StackGuardCheckGuardPageSize]
-		b := c.stack
-		var _p0 unsafe.Pointer
-		if len(b) > 0 {
-			_p0 = unsafe.Pointer(&b[0])
-		}
-		const prot = syscall.PROT_NONE
-		_, _, e1 := syscall.Syscall(syscall.SYS_MPROTECT, uintptr(_p0), uintptr(wazevoapi.StackGuardCheckGuardPageSize), uintptr(prot))
-		if e1 != 0 {
-			panic(e1)
-		}
-	} else {
-		c.execCtx.stackBottomPtr = &c.stack[0]
+		c.stackGuard()
 	}
 	c.execCtxPtr = uintptr(unsafe.Pointer(&c.execCtx))
 }
@@ -183,12 +170,6 @@ func (c *callEngine) CallWithStack(ctx context.Context, paramResultStack []uint6
 
 // CallWithStack implements api.Function.
 func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint64) (err error) {
-	if wazevoapi.StackGuardCheckEnabled {
-		defer func() {
-			wazevoapi.CheckStackGuardPage(c.stack)
-		}()
-	}
-
 	p := c.parent
 	ensureTermination := p.parent.ensureTermination
 	m := p.module
@@ -201,15 +182,9 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 		default:
 		}
 	}
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
-	}
 	var paramResultPtr *uint64
 	if len(paramResultStack) > 0 {
 		paramResultPtr = &paramResultStack[0]
-	}
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -247,30 +222,14 @@ func (c *callEngine) callWithStack(ctx context.Context, paramResultStack []uint6
 			c.execCtx.exitCode = wazevoapi.ExitCodeOK
 		}
 	}()
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
-	}
 	if ensureTermination {
 		done := m.CloseModuleOnCanceledOrTimeout(ctx)
 		defer done()
 	}
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
-	}
 	entrypoint(c.preambleExecutable, c.executable, c.execCtxPtr, c.parent.opaquePtr, paramResultPtr, c.stackTop)
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
-	}
 	for {
 		switch ec := c.execCtx.exitCode; ec & wazevoapi.ExitCodeMask {
 		case wazevoapi.ExitCodeOK:
-			if wazevoapi.StackGuardCheckEnabled {
-				wazevoapi.CheckStackGuardPage(c.stack)
-			}
-			//fmt.Printf("Stack guard page:\n\tguard_page=%s\n\tstack=%s\n",
-			//	hex.EncodeToString(c.stack[:wazevoapi.StackGuardCheckGuardPageSize]),
-			//	hex.EncodeToString(c.stack[wazevoapi.StackGuardCheckGuardPageSize:]),
-			//)
 			return nil
 		case wazevoapi.ExitCodeGrowStack:
 			var newsp uintptr
@@ -437,17 +396,18 @@ func opaqueViewFromPtr(ptr uintptr) []byte {
 const callStackCeiling = uintptr(5000000) // in uint64 (8 bytes) == 40000000 bytes in total == 40mb.
 
 func (c *callEngine) growStackWithGuarded() (newSP uintptr, err error) {
-	if wazevoapi.StackGuardCheckEnabled {
-		wazevoapi.CheckStackGuardPage(c.stack)
-		c.execCtx.stackGrowRequiredSize += uintptr(wazevoapi.StackGuardCheckGuardPageSize)
-	}
+	old := c.stack
+	c.execCtx.stackGrowRequiredSize += uintptr(wazevoapi.StackGuardCheckGuardPageSize)
 	newSP, err = c.growStack()
 	if err != nil {
 		return
 	}
-	if wazevoapi.StackGuardCheckEnabled {
-		c.execCtx.stackBottomPtr = &c.stack[wazevoapi.StackGuardCheckGuardPageSize]
-	}
+	defer func() {
+		if err := platform.MunmapCodeSegment(old); err != nil {
+			panic(err)
+		}
+	}()
+	c.stackGuard()
 	return
 }
 
@@ -460,7 +420,17 @@ func (c *callEngine) growStack() (newSP uintptr, err error) {
 	}
 
 	newLen := 2*currentLen + c.execCtx.stackGrowRequiredSize
-	newStack := make([]byte, newLen)
+	var newStack []byte
+	if wazevoapi.StackGuardCheckEnabled {
+		newLen += uintptr(wazevoapi.StackGuardCheckGuardPageSize)
+		buf, err := platform.MmapCodeSegment(int(newLen))
+		if err != nil {
+			panic(err)
+		}
+		newStack = buf
+	} else {
+		newStack = make([]byte, newLen)
+	}
 
 	relSp := c.stackTop - uintptr(unsafe.Pointer(c.execCtx.stackPointerBeforeGoCall))
 
@@ -554,4 +524,18 @@ func (si *stackIterator) SourceOffsetForPC(pc experimental.ProgramCounter) uint6
 	upc := uintptr(pc)
 	cm := si.eng.compiledModuleOfAddr(upc)
 	return cm.getSourceOffset(upc)
+}
+
+func (c *callEngine) stackGuard() {
+	b := c.stack
+	var _p0 unsafe.Pointer
+	if len(b) > 0 {
+		_p0 = unsafe.Pointer(&b[0])
+	}
+	const prot = syscall.PROT_NONE
+	_, _, e1 := syscall.Syscall(syscall.SYS_MPROTECT, uintptr(_p0), uintptr(wazevoapi.StackGuardCheckGuardPageSize), uintptr(prot))
+	if e1 != 0 {
+		panic(e1)
+	}
+	c.execCtx.stackBottomPtr = &c.stack[wazevoapi.StackGuardCheckGuardPageSize]
 }

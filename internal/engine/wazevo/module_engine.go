@@ -2,6 +2,8 @@ package wazevo
 
 import (
 	"encoding/binary"
+	"github.com/tetratelabs/wazero/internal/platform"
+	"runtime"
 	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
@@ -166,6 +168,13 @@ func (m *moduleEngine) NewFunction(index wasm.Index) api.Function {
 	ce.execCtx.refFuncTrampolineAddress = &m.parent.sharedFunctions.refFuncExecutable[0]
 	ce.execCtx.memmoveAddress = memmovPtr
 	ce.init()
+
+	runtime.SetFinalizer(ce, func(ce *callEngine) {
+		if err := platform.MunmapCodeSegment(ce.stack); err != nil {
+			panic(err)
+		}
+		ce.stack = nil
+	})
 	return ce
 }
 
