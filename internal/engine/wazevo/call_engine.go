@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/tetratelabs/wazero/internal/platform"
 	"reflect"
+	"syscall"
 	"unsafe"
 
 	"github.com/tetratelabs/wazero/api"
@@ -98,11 +100,29 @@ func (c *callEngine) init() {
 	stackSize := c.requiredInitialStackSize()
 	if wazevoapi.StackGuardCheckEnabled {
 		stackSize += wazevoapi.StackGuardCheckGuardPageSize
+		buf, err := platform.MmapCodeSegment(stackSize)
+		if err != nil {
+			panic(err)
+		} else if len(buf) != stackSize {
+			panic("BUG")
+		}
+		c.stack = buf
+	} else {
+		c.stack = make([]byte, stackSize)
 	}
-	c.stack = make([]byte, stackSize)
 	c.stackTop = alignedStackTop(c.stack)
 	if wazevoapi.StackGuardCheckEnabled {
 		c.execCtx.stackBottomPtr = &c.stack[wazevoapi.StackGuardCheckGuardPageSize]
+		b := c.stack
+		var _p0 unsafe.Pointer
+		if len(b) > 0 {
+			_p0 = unsafe.Pointer(&b[0])
+		}
+		const prot = syscall.PROT_NONE
+		_, _, e1 := syscall.Syscall(syscall.SYS_MPROTECT, uintptr(_p0), uintptr(wazevoapi.StackGuardCheckGuardPageSize), uintptr(prot))
+		if e1 != 0 {
+			panic(e1)
+		}
 	} else {
 		c.execCtx.stackBottomPtr = &c.stack[0]
 	}
@@ -419,7 +439,7 @@ const callStackCeiling = uintptr(5000000) // in uint64 (8 bytes) == 40000000 byt
 func (c *callEngine) growStackWithGuarded() (newSP uintptr, err error) {
 	if wazevoapi.StackGuardCheckEnabled {
 		wazevoapi.CheckStackGuardPage(c.stack)
-		c.execCtx.stackGrowRequiredSize += wazevoapi.StackGuardCheckGuardPageSize
+		c.execCtx.stackGrowRequiredSize += uintptr(wazevoapi.StackGuardCheckGuardPageSize)
 	}
 	newSP, err = c.growStack()
 	if err != nil {

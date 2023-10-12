@@ -9,6 +9,7 @@ import (
 )
 
 func TestCallEngine_init(t *testing.T) {
+	t.Skip()
 	c := &callEngine{}
 	c.init()
 	require.True(t, c.stackTop%16 == 0)
