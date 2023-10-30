@@ -35,12 +35,16 @@ type (
 		ReloadRegisterAfter(v VReg, instr Instr)
 		// Done tells the implementation that register allocation is done, and it can finalize the stack
 		Done()
+
+		LoopNestingForestRoots() int
+		LoopNestingForestRoot(i int) Block
 	}
 
 	// Block is a basic block in the CFG of a function, and it consists of multiple instructions, and predecessor Block(s).
 	Block interface {
 		// ID returns the unique identifier of this block.
 		ID() int
+		// BlockParams returns the virtual registers used as the parameters of this block.
 		BlockParams() []VReg
 		// InstrIteratorBegin returns the first instruction in this block. Instructions added after lowering must be skipped.
 		// Note: multiple Instr(s) will not be held at the same time, so it's safe to use the same impl for the return Instr.
@@ -48,12 +52,21 @@ type (
 		// InstrIteratorNext returns the next instruction in this block. Instructions added after lowering must be skipped.
 		// Note: multiple Instr(s) will not be held at the same time, so it's safe to use the same impl for the return Instr.
 		InstrIteratorNext() Instr
+
+		InstrRevIteratorBegin() Instr
+		InstrRevIteratorNext() Instr
 		// Preds returns the number of predecessors of this block in the CFG.
 		Preds() int
 		// Pred returns the i-th predecessor of this block in the CFG.
 		Pred(i int) Block
 		// Entry returns true if the block is for the entry block.
 		Entry() bool
+		Succs() int
+		Succ(i int) Block
+		LoopHeader() bool
+
+		LoopNestingForestChildren() int
+		LoopNestingForestChild(i int) Block
 	}
 
 	// Instr is an instruction in a block, abstracting away the underlying ISA.

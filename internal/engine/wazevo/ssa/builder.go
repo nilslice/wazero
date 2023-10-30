@@ -121,6 +121,9 @@ type Builder interface {
 
 	// SetCurrentSourceOffset sets the current source offset. The incoming instruction will be annotated with this offset.
 	SetCurrentSourceOffset(line SourceOffset)
+
+	// TODO
+	LoopNestingForestRoots() []BasicBlock
 }
 
 // NewBuilder returns a new Builder implementation.
@@ -167,6 +170,9 @@ type builder struct {
 	// The index is blockID of the BasicBlock.
 	dominators []*basicBlock
 
+	// loopNestingForestRoots are the roots of the loop nesting forest.
+	loopNestingForestRoots []BasicBlock
+
 	// The followings are used for optimization passes/deterministic compilation.
 	instStack                      []*Instruction
 	blkVisited                     map[*basicBlock]int
@@ -208,6 +214,7 @@ func (b *builder) Init(s *Signature) {
 	b.blkStack = b.blkStack[:0]
 	b.blkStack2 = b.blkStack2[:0]
 	b.dominators = b.dominators[:0]
+	b.loopNestingForestRoots = b.loopNestingForestRoots[:0]
 
 	for i := 0; i < b.basicBlocksPool.Allocated(); i++ {
 		blk := b.basicBlocksPool.View(i)
@@ -1033,4 +1040,9 @@ func (b *builder) InsertUndefined() {
 	instr := b.AllocateInstruction()
 	instr.opcode = OpcodeUndefined
 	b.InsertInstruction(instr)
+}
+
+// LoopNestingForestRoots implements Builder.LoopNestingForestRoots.
+func (b *builder) LoopNestingForestRoots() []BasicBlock {
+	return b.loopNestingForestRoots
 }

@@ -17,6 +17,7 @@ func (b *builder) RunPasses() {
 	passRedundantPhiEliminationOpt(b)
 	// The result of passCalculateImmediateDominators will be used by various passes below.
 	passCalculateImmediateDominators(b)
+	passBuildLoopNestingForest(b)
 	passNopInstElimination(b)
 
 	// TODO: implement either conversion of irreducible CFG into reducible one, or irreducible CFG detection where we panic.

@@ -54,6 +54,6 @@ func (p *Pool[T]) View(i int) *T {
 // Reset resets the pool.
 func (p *Pool[T]) Reset() {
 	p.pages = p.pages[:0]
-	p.index = poolPageSize
+	p.index = poolPageSize // TODO: might be fixed.
 	p.allocated = 0
 }

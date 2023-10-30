@@ -325,16 +325,15 @@ var (
 	ReferenceValueFromUnsealedBlock3 = TestCase{
 		Name: "reference_value_from_unsealed_block3",
 		Module: SingleFunctionModule(i32_v, []byte{
-			wasm.OpcodeLoop, blockSignature_vv,
-			wasm.OpcodeBlock, blockSignature_vv,
-
-			wasm.OpcodeLocalGet, 0,
-			wasm.OpcodeBrIf, 2,
-			wasm.OpcodeEnd,
-			wasm.OpcodeI32Const, 1,
-			wasm.OpcodeLocalSet, 0,
-			wasm.OpcodeBr, 0,
-			wasm.OpcodeEnd,
+			/**/ wasm.OpcodeLoop, blockSignature_vv,
+			/**/ /**/ wasm.OpcodeBlock, blockSignature_vv,
+			/**/ /**/ /**/ wasm.OpcodeLocalGet, 0,
+			/**/ /**/ /**/ wasm.OpcodeBrIf, 2,
+			/**/ /**/ wasm.OpcodeEnd,
+			/**/ wasm.OpcodeI32Const, 1,
+			/**/ wasm.OpcodeLocalSet, 0,
+			/**/ wasm.OpcodeBr, 0,
+			/**/ wasm.OpcodeEnd,
 			wasm.OpcodeEnd,
 		}, []wasm.ValueType{}),
 	}
